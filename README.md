@@ -1,88 +1,134 @@
-# kumar_manju_files
-import xml.etree.ElementTree as ET
-import csv
+package.json
 
-# ---------- CONFIG ----------
-xml_file = "informatica_mapping.xml"
+{
+  "name": "mitra",
+  "displayName": "Mitra Assistant",
+  "description": "An AI-powered metadata platform helping tool.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Mitra Assistant",
+      "properties": {
+        "mitra.prompts": {
+          "type": "array",
+          "description": "List of custom prompts for Mitra.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name of the prompt (used to call it)."
+              },
+              "promptText": {
+                "type": "string",
+                "description": "The actual AI/system prompt instruction."
+              },
+              "inputFolder": {
+                "type": "string",
+                "description": "Path to input folder."
+              },
+              "outputFolder": {
+                "type": "string",
+                "description": "Path to output folder."
+              }
+            },
+            "required": ["name", "promptText", "inputFolder", "outputFolder"]
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "esbuild ./src/extension.ts --bundle --outdir=dist --platform=node --external:vscode --format=cjs",
+    "watch": "esbuild ./src/extension.ts --bundle --outdir=dist --platform=node --external:vscode --format=cjs --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "esbuild": "^0.19.0",
+    "typescript": "^5.0.0"
+  }
+}
 
-# Output files
-sources_csv = "sources.csv"
-targets_csv = "targets.csv"
-connectors_csv = "connectors.csv"
-logic_csv = "transformation_logic.csv"
 
-# ---------- PARSING ----------
-tree = ET.parse(xml_file)
-root = tree.getroot()
+************** extension ts *****
 
-# Namespace check (some XMLs have namespaces, strip them)
-def strip_ns(tag):
-    return tag.split('}')[-1] if '}' in tag else tag
+import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
-# Collect data
-sources, targets, connectors, logics = [], [], [], []
+export function activate(context: vscode.ExtensionContext) {
+    const config = vscode.workspace.getConfiguration("mitra");
+    const prompts = config.get<any[]>("prompts") || [];
 
-# ---- Sources ----
-for src in root.findall(".//SOURCE"):
-    src_name = src.attrib.get("NAME")
-    for field in src.findall(".//SOURCEFIELD"):
-        sources.append([src_name,
-                        field.attrib.get("NAME"),
-                        field.attrib.get("DATATYPE"),
-                        field.attrib.get("PRECISION"),
-                        field.attrib.get("SCALE")])
+    if (prompts.length === 0) {
+        vscode.window.showInformationMessage("Mitra: No prompts configured. Please add prompts in settings.");
+        return;
+    }
 
-# ---- Targets ----
-for tgt in root.findall(".//TARGET"):
-    tgt_name = tgt.attrib.get("NAME")
-    for field in tgt.findall(".//TARGETFIELD"):
-        targets.append([tgt_name,
-                        field.attrib.get("NAME"),
-                        field.attrib.get("DATATYPE"),
-                        field.attrib.get("PRECISION"),
-                        field.attrib.get("SCALE")])
+    prompts.forEach(prompt => {
+        const commandName = `mitra.${prompt.name}`;
+        let disposable = vscode.commands.registerCommand(commandName, async () => {
+            vscode.window.showInformationMessage(`Mitra running prompt: ${prompt.name}`);
 
-# ---- Connectors (lineage) ----
-for conn in root.findall(".//CONNECTOR"):
-    connectors.append([
-        conn.attrib.get("FROMINSTANCE"),
-        conn.attrib.get("FROMFIELD"),
-        conn.attrib.get("TOINSTANCE"),
-        conn.attrib.get("TOFIELD")
-    ])
+            try {
+                if (!fs.existsSync(prompt.inputFolder)) {
+                    vscode.window.showErrorMessage(`Input folder does not exist: ${prompt.inputFolder}`);
+                    return;
+                }
+                if (!fs.existsSync(prompt.outputFolder)) {
+                    fs.mkdirSync(prompt.outputFolder, { recursive: true });
+                }
 
-# ---- Transformations (logic, hardcoded values) ----
-for trans in root.findall(".//TRANSFORMATION"):
-    tname = trans.attrib.get("NAME")
-    ttype = trans.attrib.get("TYPE")
+                const inputFiles = fs.readdirSync(prompt.inputFolder);
 
-    # Expression / Aggregator field logic
-    for field in trans.findall(".//TRANSFORMFIELD"):
-        expr = field.attrib.get("EXPRESSION")
-        if expr:
-            logics.append([tname, ttype, field.attrib.get("NAME"), expr])
+                for (const file of inputFiles) {
+                    const filePath = path.join(prompt.inputFolder, file);
+                    const content = fs.readFileSync(filePath, 'utf-8');
 
-    # Table attributes (filter, join, lookup)
-    for attr in trans.findall(".//TABLEATTRIBUTE"):
-        name = attr.attrib.get("NAME")
-        value = attr.attrib.get("VALUE")
-        if value:
-            logics.append([tname, ttype, name, value])
+                    // Stub: Here you’d call AI model with prompt.promptText + content
+                    const processed = `🔹 Mitra Prompt: ${prompt.promptText}\n\n---\n\n${content}`;
 
-# ---------- WRITE TO CSV ----------
-def write_csv(filename, header, rows):
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(header)
-        writer.writerows(rows)
+                    const outputPath = path.join(prompt.outputFolder, file);
+                    fs.writeFileSync(outputPath, processed, 'utf-8');
+                }
 
-write_csv(sources_csv, ["Source", "Column", "Datatype", "Precision", "Scale"], sources)
-write_csv(targets_csv, ["Target", "Column", "Datatype", "Precision", "Scale"], targets)
-write_csv(connectors_csv, ["FromInstance", "FromField", "ToInstance", "ToField"], connectors)
-write_csv(logic_csv, ["Transformation", "Type", "Field/Attr", "Expression"], logics)
+                vscode.window.showInformationMessage(`Prompt "${prompt.name}" completed! Results saved in ${prompt.outputFolder}`);
+            } catch (err: any) {
+                vscode.window.showErrorMessage(`Mitra Error: ${err.message}`);
+            }
+        });
 
-print("✅ Extraction complete!")
-print(f"- Sources → {sources_csv}")
-print(f"- Targets → {targets_csv}")
-print(f"- Connectors → {connectors_csv}")
-print(f"- Transformation Logic → {logic_csv}")
+        context.subscriptions.push(disposable);
+    });
+}
+
+export function deactivate() {}
+
+
+****** settings json ****
+
+"mitra.prompts": [
+  {
+    "name": "summarizeCode",
+    "promptText": "Summarize all functions in plain English.",
+    "inputFolder": "C:/Users/kumar/projects/input",
+    "outputFolder": "C:/Users/kumar/projects/output"
+  },
+  {
+    "name": "checkSQL",
+    "promptText": "Validate all SQL queries for best practices.",
+    "inputFolder": "C:/Users/kumar/sqlfiles",
+    "outputFolder": "C:/Users/kumar/sqlout"
+  }
+]
